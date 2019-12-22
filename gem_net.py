@@ -1,6 +1,3 @@
-import os
-os.environ["KERAS_BACKEND"] = "plaidml.keras.backend"
-
 import sys
 
 from keras_preprocessing.image import ImageDataGenerator
@@ -12,7 +9,7 @@ from keras.callbacks import ModelCheckpoint
 
 
 checkpoint = ModelCheckpoint("cnn_gems.h5", 
-                    monitor="acc",
+                    monitor="val_acc",
                     verbose=1,
                     mode="max",
                     period=1,
@@ -23,31 +20,34 @@ img_datagen = ImageDataGenerator(rescale=1/255,
                    rotation_range=45,
                    horizontal_flip=True,
                    vertical_flip=True, 
-                   width_shift_range=0.2,
-                   height_shift_range=0.2,
                    )
 
-img_generator = img_datagen.flow_from_directory(
-    './data',
-    target_size=(96, 96),
-    batch_size=64,
+train_gen = img_datagen.flow_from_directory(
+    './data/train',
+    target_size=(224, 224),
+    batch_size=16,
     class_mode='categorical'
 )
 
+val_gen = img_datagen.flow_from_directory(
+    './data/test',
+    target_size=(224, 224),
+    batch_size=16,
+    class_mode='categorical'
+)
+
+
 def train_first():
-    model = MobileNetV2(input_shape=(96, 96, 3),
+    base_model = MobileNetV2(input_shape=(224, 224, 3),
                                  weights='imagenet',
                                  include_top=False)
     
-    x_ = model.output
+    x_ = base_model.output
     x_ = GlobalAveragePooling2D()(x_)
-    x_ = Dense(1024, activation='relu')(x_)
-    preds = Dense(286, activation='softmax')(x_)  
+    preds = Dense(87, activation='softmax')(x_)  
     
-    model = Model(inputs = model.input, outputs=preds)
-    model.compile(optimizer=SGD( momentum=0.9, nesterov=True),
-                 loss='categorical_crossentropy', 
-                 metrics=['accuracy'])
+    model = Model(inputs = base_model.input, outputs=preds)
+    model.compile(optimizer='rmsprop', loss='categorical_crossentropy', metrics=['acc'])
 
     return model
 
@@ -64,8 +64,10 @@ def main(argc, argv):
         model=train_first()
 
 
-    model.fit_generator(img_generator, callbacks=[checkpoint],
-                     steps_per_epoch=2966/64, epochs=20)
+    model.fit_generator(train_gen, callbacks=[checkpoint],
+                     steps_per_epoch=train_gen.samples // 16,
+                     epochs=10, validation_data = val_gen,
+                     validation_steps = val_gen.samples // 16 )
 
 if __name__ == "__main__":
     main(len(sys.argv), sys.argv)
